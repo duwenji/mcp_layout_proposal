@@ -32,43 +32,114 @@ mcp_servers/
 - `Resource` は `Resources`、`Tools` は `Tool`、`Prompts` は `Prompt` でも読めます。
 
 ## ロードフロー
-1. `run_multi_server.py` が対象サーバ名を受け取る。
-2. `multi_server_loader.py` が対象サーバフォルダのみ探索する。
-3. `server.json` を読み込みメタデータを取得する。（ファイルがない場合は省略）
-4. `Tools` / `Prompts` / `Resource` の `.py` を順にimportする。
-5. 各モジュールの `register(server)` を実行する。
-6. 管理用 `server://info`、`layout://load-report`、`layout_list` を登録する。
-7. 指定transportでサーバを起動する。
 
-### シーケンス図 (Mermaid)
+使用する Transport により異なります。
+
+### Proxy Mode（SSE / Streamable-HTTP）
+1. `run_multi_server.py` が起動（transport: sse or streamable-http）
+2. `proxy_server.py` をサブプロセスで実行
+3. すべてのサーバーを同一プロセス内でビルド
+4. FastMCP の ASGI アプリケーションとして Starlette にマウント
+5. Uvicorn で **1つのポート（8000）** で複数サーバーをパスベース公開
+   - `http://localhost:8000/server_a/mcp`
+   - `http://localhost:8000/server_b/mcp`
+
+### Multi Mode（STDIO）
+1. `run_multi_server.py` が起動（transport: stdio）
+2. 各サーバーを **別々のプロセス（`multiprocessing.Process`）** で同時実行
+3. 各プロセスが独立した標準入出力を持つ（**ポート不要**）
+4. 各プロセス内で：
+   - `multi_server_loader.py` がサーバディレクトリを読み込み
+   - `server.json` のメタデータを取得
+   - `Tools` / `Prompts` / `Resource` の `.py` をimport
+   - 各モジュールの `register(server)` を実行
+   - FastMCP サーバーを STDIO transport で起動
+
+### アーキテクチャ図
+
 ```mermaid
-sequenceDiagram
-    autonumber
-    participant U as User
-    participant R as run_multi_server.py
-    participant L as MultiServerLayoutLoader
-    participant S as FastMCP(mcp_server_a)
-    participant T as Tools/Prompts/Resource/*.py
-
-    U->>R: python run_multi_server.py --root mcp_servers --server mcp_server_a
-    R->>L: build_server("mcp_server_a")
-    L->>L: server.json を読み込み
-    L->>L: mcp_server_a のみ探索
-    L->>T: import *.py
-    L->>T: register(server)
-    T->>S: tool/prompt/resource 登録
-    L->>S: server://info, layout://load-report, layout_list 追加
-    R->>S: run(transport)
-    U->>S: server://info 呼び出し
-    S-->>U: メタデータ（JSON）
+graph TD
+    A["User<br/>$ python run_multi_server.py --transport sse"]
+    B["User<br/>$ python run_multi_server.py --transport stdio"]
+    
+    A -->|Proxy Mode| PA["proxy_server.py<br/>(Starlette + Uvicorn)"]
+    B -->|Multi Mode| MB["MultiProcessing<br/>(多重プロセス)"]
+    
+    PA -->|Mount ASGI<br/>apps| SA["FastMCP<br/>server_a<br/>:8000/a"]
+    PA -->|Mount ASGI<br/>apps| SB["FastMCP<br/>server_b<br/>:8000/b"]
+    
+    MB -->|Process 1| P1["Python Process<br/>server_a<br/>stdin/stdout"]
+    MB -->|Process 2| P2["Python Process<br/>server_b<br/>stdin/stdout"]
+    
+    SA --> RA["✓ Running"]
+    SB --> RB["✓ Running"]
+    P1 --> RP1["✓ Running"]
+    P2 --> RP2["✓ Running"]
 ```
 
 ## 実行方法
-前提: `mcp` パッケージがインストール済み。
 
+### Transport による自動モード選択
+
+`--transport` 値により自動的に実行モードが決まります：
+
+| Transport | Mode | 用途 |
+|-----------|------|------|
+| `sse` (デフォルト) | Proxy | **推奨** 本番・テスト共通（ポート: 8000） |
+| `streamable-http` | Proxy | 双方向通信が必要な場合（ポート: 8000） |
+| `stdio` | Multi | 開発時に各サーバを独立実行（ポート不要） |
+
+### 実行例
+
+**Proxy Mode（推奨）- SSE transport（デフォルト）**
 ```bash
-cd mcpの改善
-python run_multi_server.py --root mcp_servers --server mcp_server_a --transport stdio
+# すべてのサーバーを単一ポートで公開
+python run_multi_server.py
+
+# 特定のサーバーのみ
+python run_multi_server.py --server server_a server_b
+
+# ホスト・ポートを指定
+python run_multi_server.py --host 0.0.0.0 --port 9000
+
+# Streamable-HTTP transport を使用
+python run_multi_server.py --transport streamable-http
+```
+
+**Multi Mode - STDIO transport（開発用）**
+```bash
+# 各サーバーを独立したプロセスで実行
+python run_multi_server.py --transport stdio
+
+# 特定のサーバーのみ
+python run_multi_server.py --transport stdio --server server_a server_b
+```
+
+### URL パスのカスタマイズ
+
+Proxy モード時、`server.json` に `path` フィールドを指定してURL パスをカスタマイズできます：
+
+```json
+{
+  "name": "mcp_server_a",
+  "path": "api/v1/chat",      ← URL パスを指定
+  "version": "1.0.0",
+  "description": "Sample MCP server",
+  "capabilities": {
+    "tools": true,
+    "prompts": true,
+    "resources": true
+  }
+}
+```
+
+- `path` 未指定の場合 → サーバー名（`mcp_server_a`）がパスになります
+- Multi モード（stdio）では無視されます
+
+**例：**
+```
+http://localhost:8000/api/v1/chat/mcp  ← path="api/v1/chat" の場合
+http://localhost:8000/server_a/mcp      ← path 未指定の場合
 ```
 
 ## 管理機能
@@ -80,7 +151,8 @@ python run_multi_server.py --root mcp_servers --server mcp_server_a --transport 
 
 ## ファイル一覧
 - `multi_server_loader.py`: 階層レイアウトローダ本体
-- `run_multi_server.py`: サーバ指定起動スクリプト
+- `run_multi_server.py`: マルチ/プロキシ起動スクリプト（メインエントリーポイント）
+- `proxy_server.py`: パスベースプロキシサーバー実装
 - `mcp_servers/mcp_server_a/`: サンプルサーバ構成
   - `server.json`: メタデータファイル（オプション）
   - `Tools/calc.py`: ツール実装例

@@ -39,11 +39,55 @@ mcp_servers/
 各 `.py` は `register(server)` を実装する。
 
 ## ロード方式
-1. `run_multi_server.py` が `--server` で対象サーバを指定
-2. `multi_server_loader.py` が対象サーバディレクトリのみ読み込み
-3. **`server.json` を読み込みメタデータを取得**（ファイルなしでも継続）
-4. `Tools` / `Prompts` / `Resource` の順でimportして `register(server)` 実行
-5. 管理用 `server://info`、`layout://load-report`、`layout_list` を登録
+
+### 自動モード判定（Transport ベース）
+
+`--transport` の値により自動的に実行モードが決まります：
+
+#### Proxy Mode（SSE / Streamable-HTTP）
+```
+python run_multi_server.py                          # transport=sse（デフォルト）
+python run_multi_server.py --transport streamable-http
+```
+
+**処理フロー：**
+1. `run_multi_server.py` が起動
+2. `proxy_server.py` をサブプロセスで実行
+3. すべてのサーバーをメインプロセスでビルド
+4. FastMCP の http_app() を ASGI アプリケーションとしてマウント
+5. Starlette + Uvicorn で **1つのポートで複数サーバーをパスベース公開**
+   ```
+   http://localhost:8000/server_a/mcp
+   http://localhost:8000/server_b/mcp
+   ```
+
+**利点：**
+- ポート数が最小化（1ポートのみ）
+- ログが統一される
+- 本番環境に適している
+- **推奨モード**
+
+#### Multi Mode（STDIO）
+```
+python run_multi_server.py --transport stdio
+```
+
+**処理フロー：**
+1. `run_multi_server.py` が起動
+2. 各サーバーを **別々のプロセス（`multiprocessing.Process`）で同時実行**
+3. 各プロセスが **独立した標準入出力を持つ**（**ポート番号不要**）
+4. 各プロセス内で：
+   - `multi_server_loader.py` が対象サーバディレクトリを読み込み
+   - `server.json` を読み込みメタデータを取得
+   - `Tools` / `Prompts` / `Resource` の順でimportして `register(server)` 実行
+   - 管理用リソース/ツール を登録
+   - STDIO transport でサーバを起動
+
+**利点：**
+- プロセスの完全独立（1つのサーバクラッシュが他に影響しない）
+- 開発・デバッグに適している
+- ポート管理が不要
+- シンプルな実装
 
 ## 期待効果
 - サーバ境界の明確化
@@ -61,7 +105,8 @@ mcp_servers/
 - MCPクライアントからのサーバー情報照会に対応
 
 ## 現在の生成物
-- `multi_server_loader.py` — JSONメタデータ読み込み機能付き
-- `run_multi_server.py` — サーバ指定起動スクリプト
-- `mcp_servers/mcp_server_a/server.json` — メタデータサンプル
+- `multi_server_loader.py` — JSON メタデータ読み込み機能付きローダ
+- `run_multi_server.py` — マルチ/プロキシ起動スクリプト（メインエントリーポイント）
+- `proxy_server.py` — パスベースプロキシサーバー実装（Starlette + Uvicorn）
+- `mcp_servers/mcp_server_a/server.json` — メタデータサンプル（`path`, `port` フィールド追加）
 - `mcp_servers/mcp_server_a/` — サンプルサーバ構成

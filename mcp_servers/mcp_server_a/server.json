@@ -1,5 +1,6 @@
 {
   "name": "mcp_server_a",
+  "path": "server_a",
   "version": "1.0.0",
   "description": "Sample MCP server A with Tools, Prompts, and Resources",
   "author": "Example Team",
