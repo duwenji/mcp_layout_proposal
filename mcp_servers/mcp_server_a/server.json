@@ -1,0 +1,16 @@
+{
+  "name": "mcp_server_a",
+  "version": "1.0.0",
+  "description": "Sample MCP server A with Tools, Prompts, and Resources",
+  "author": "Example Team",
+  "capabilities": {
+    "tools": true,
+    "prompts": true,
+    "resources": true
+  },
+  "features": [
+    "calculation",
+    "summarization",
+    "profile_management"
+  ]
+}

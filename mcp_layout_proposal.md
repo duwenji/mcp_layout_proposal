@@ -19,15 +19,18 @@
 ```text
 mcp_servers/
   mcp_server_a/
+    server.json          ← サーバーメタデータ（オプション）
     Tools/*.py
     Prompts/*.py
     Resource/*.py
   mcp_server_b/
+    server.json          ← 配置なしでも起動可能
     Tools/*.py
     Prompts/*.py
     Resource/*.py
   ...
   mcp_server_m/
+    server.json
     Tools/*.py
     Prompts/*.py
     Resource/*.py
@@ -38,8 +41,9 @@ mcp_servers/
 ## ロード方式
 1. `run_multi_server.py` が `--server` で対象サーバを指定
 2. `multi_server_loader.py` が対象サーバディレクトリのみ読み込み
-3. `Tools` / `Prompts` / `Resource` の順でimportして `register(server)` 実行
-4. 管理用 `layout://load-report` と `layout_list` を登録
+3. **`server.json` を読み込みメタデータを取得**（ファイルなしでも継続）
+4. `Tools` / `Prompts` / `Resource` の順でimportして `register(server)` 実行
+5. 管理用 `server://info`、`layout://load-report`、`layout_list` を登録
 
 ## 期待効果
 - サーバ境界の明確化
@@ -52,9 +56,12 @@ mcp_servers/
 - 将来的に署名/ハッシュ検証を追加
 
 ## 標準化観点
-既存MCP仕様との互換性を維持しつつ、将来的には capability の実験拡張として定義可能。
+既存MCP仕様との互換性を維持しつつ、capability の実験拡張として定義可能。
+- `server://info` リソースで標準化されたメタデータ取得に対応
+- MCPクライアントからのサーバー情報照会に対応
 
 ## 現在の生成物
-- `multi_server_loader.py`
-- `run_multi_server.py`
-- `mcp_servers/mcp_server_a/` サンプル
+- `multi_server_loader.py` — JSONメタデータ読み込み機能付き
+- `run_multi_server.py` — サーバ指定起動スクリプト
+- `mcp_servers/mcp_server_a/server.json` — メタデータサンプル
+- `mcp_servers/mcp_server_a/` — サンプルサーバ構成

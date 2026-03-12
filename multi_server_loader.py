@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -23,6 +24,7 @@ class ServerBuildResult:
     server_name: str
     server: FastMCP
     module_results: list[ModuleLoadResult]
+    server_info: dict[str, Any] | None = None
 
 
 class MultiServerLayoutLoader:
@@ -31,6 +33,7 @@ class MultiServerLayoutLoader:
     Expected layout:
       root/
         server_a/
+          server.json         # Server metadata (optional)
           Tools/*.py
           Prompts/*.py
           Resource/*.py
@@ -59,6 +62,17 @@ class MultiServerLayoutLoader:
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module
+
+    def _load_server_info(self, server_dir: Path) -> dict[str, Any] | None:
+        """Load server.json if it exists, otherwise return None."""
+        server_json = server_dir / "server.json"
+        if server_json.exists():
+            try:
+                with open(server_json) as f:
+                    return json.load(f)
+            except Exception as exc:
+                raise ValueError(f"Failed to load server.json: {exc}")
+        return None
 
     def _category_paths(self, server_dir: Path) -> dict[str, Path | None]:
         lowered = {p.name.lower(): p for p in server_dir.iterdir() if p.is_dir()}
@@ -116,6 +130,7 @@ class MultiServerLayoutLoader:
             raise ValueError(f"Server directory does not exist: {server_name}")
 
         server = FastMCP(server_name)
+        server_info = self._load_server_info(server_dir)
         category_paths = self._category_paths(server_dir)
         module_results: list[ModuleLoadResult] = []
         for category in ("tools", "prompts", "resources"):
@@ -128,14 +143,24 @@ class MultiServerLayoutLoader:
                 )
             )
 
-        self._attach_admin_interfaces(server, module_results)
+        self._attach_admin_interfaces(server, module_results, server_info)
         return ServerBuildResult(
             server_name=server_name,
             server=server,
             module_results=module_results,
+            server_info=server_info,
         )
 
-    def _attach_admin_interfaces(self, server: FastMCP, module_results: list[ModuleLoadResult]) -> None:
+    def _attach_admin_interfaces(
+        self, server: FastMCP, module_results: list[ModuleLoadResult], server_info: dict[str, Any] | None
+    ) -> None:
+        @server.resource("server://info")
+        def server_info_resource() -> str:
+            """Return server metadata as JSON."""
+            if server_info is None:
+                return json.dumps({"name": server.name, "error": "No server.json found"})
+            return json.dumps(server_info)
+
         @server.resource("layout://load-report")
         def load_report() -> str:
             lines: list[str] = []
