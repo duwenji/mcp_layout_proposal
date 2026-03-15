@@ -33,8 +33,8 @@ def create_proxy_app(servers_dict: dict[str, tuple[str, object]]) -> Starlette:
     for path, (server_name, server_instance) in servers_dict.items():
         logger.info(f"Mounting {server_name} at /{path}/mcp")
         
-        # Get the ASGI app from FastMCP
-        app_asgi = server_instance.http_app()
+        # Get the ASGI app from FastMCP (sse_app for SSE transport)
+        app_asgi = server_instance.sse_app()
         routes.append(Mount(f"/{path}", app_asgi))
 
     app = Starlette(routes=routes)

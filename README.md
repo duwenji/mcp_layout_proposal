@@ -39,42 +39,40 @@ mcp_servers/
 1. `run_multi_server.py` が起動（transport: sse or streamable-http）
 2. `proxy_server.py` をサブプロセスで実行
 3. すべてのサーバーを同一プロセス内でビルド
-4. FastMCP の ASGI アプリケーションとして Starlette にマウント
+4. FastMCP の ASGI アプリケーション（`sse_app()`）として Starlette にマウント
 5. Uvicorn で **1つのポート（8000）** で複数サーバーをパスベース公開
    - `http://localhost:8000/server_a/mcp`
    - `http://localhost:8000/server_b/mcp`
 
-### Multi Mode（STDIO）
-1. `run_multi_server.py` が起動（transport: stdio）
-2. 各サーバーを **別々のプロセス（`multiprocessing.Process`）** で同時実行
-3. 各プロセスが独立した標準入出力を持つ（**ポート不要**）
-4. 各プロセス内で：
-   - `multi_server_loader.py` がサーバディレクトリを読み込み
-   - `server.json` のメタデータを取得
-   - `Tools` / `Prompts` / `Resource` の `.py` をimport
-   - 各モジュールの `register(server)` を実行
-   - FastMCP サーバーを STDIO transport で起動
+### Debug Mode（STDIO）
+**注意: Stdio モードは単一サーバのみをサポートします**
+
+1. `run_multi_server.py` が起動（transport: stdio, --server で単一サーバを指定）
+2. `run_server_subprocess.py` を subprocess.Popen で実行
+3. サーバーの stdout/stderr を親プロセスがキャプチャ
+4. リアルタイムログ監視機能付き（`[server_name]` プリフィックス）
+5. FastMCP サーバーを STDIO transport で起動
+6. **external access 不可**（開発・デバッグ用）
 
 ### アーキテクチャ図
 
 ```mermaid
 graph TD
     A["User<br/>$ python run_multi_server.py --transport sse"]
-    B["User<br/>$ python run_multi_server.py --transport stdio"]
+    B["User<br/>$ python run_multi_server.py --transport stdio --server server_a"]
     
     A -->|Proxy Mode| PA["proxy_server.py<br/>(Starlette + Uvicorn)"]
-    B -->|Multi Mode| MB["MultiProcessing<br/>(多重プロセス)"]
+    B -->|Debug Mode| MB["run_server_subprocess.py<br/>(Subprocess)"]
     
-    PA -->|Mount ASGI<br/>apps| SA["FastMCP<br/>server_a<br/>:8000/a"]
-    PA -->|Mount ASGI<br/>apps| SB["FastMCP<br/>server_b<br/>:8000/b"]
+    PA -->|Mount ASGI<br/>sse_app| SA["FastMCP<br/>server_a"]
+    PA -->|Mount ASGI<br/>sse_app| SB["FastMCP<br/>server_b"]
     
-    MB -->|Process 1| P1["Python Process<br/>server_a<br/>stdin/stdout"]
-    MB -->|Process 2| P2["Python Process<br/>server_b<br/>stdin/stdout"]
+    MB -->|Pipe stdout/stderr| P1["FastMCP<br/>server_a<br/>stdio"]
     
-    SA --> RA["✓ Running"]
-    SB --> RB["✓ Running"]
-    P1 --> RP1["✓ Running"]
-    P2 --> RP2["✓ Running"]
+    SA --> EP_A["http://127.0.0.1:8000<br/>/server_a/mcp"]
+    SB --> EP_B["http://127.0.0.1:8000<br/>/server_b/mcp"]
+    
+    P1 --> LOG["[server_a] log output<br/>Real-time monitoring"]
 ```
 
 ## 実行方法
@@ -83,11 +81,11 @@ graph TD
 
 `--transport` 値により自動的に実行モードが決まります：
 
-| Transport | Mode | 用途 |
-|-----------|------|------|
-| `sse` (デフォルト) | Proxy | **推奨** 本番・テスト共通（ポート: 8000） |
-| `streamable-http` | Proxy | 双方向通信が必要な場合（ポート: 8000） |
-| `stdio` | Multi | 開発時に各サーバを独立実行（ポート不要） |
+| Transport | Mode | 用途 | 複数サーバ | ポート |
+|-----------|------|------|---------|--------|
+| `sse` (デフォルト) | Proxy | **推奨** 本番・テスト共通 | ✅ 対応 | 8000 |
+| `streamable-http` | Proxy | 双方向通信が必要な場合 | ✅ 対応 | 8000 |
+| `stdio` | Debug | 開発時・デバッグ用（単一サーバのみ） | ❌ 非対応 | 不要 |
 
 ### 実行例
 
@@ -106,13 +104,30 @@ python run_multi_server.py --host 0.0.0.0 --port 9000
 python run_multi_server.py --transport streamable-http
 ```
 
-**Multi Mode - STDIO transport（開発用）**
-```bash
-# 各サーバーを独立したプロセスで実行
-python run_multi_server.py --transport stdio
+**Debug Mode - STDIO transport（開発用・単一サーバのみ）**
 
-# 特定のサーバーのみ
+⚠️ **注意**: Stdio モードは単一サーバのみをサポートします。`--server` パラメータで**必ず1つのサーバを指定**してください。
+
+```bash
+# 単一サーバをデバッグモードで実行（リアルタイムログ監視機能付き）
+python run_multi_server.py --transport stdio --server mcp_server_a
+
+# 出力例：
+# Debug Mode (stdio): Starting mcp_server_a
+# [mcp_server_a] <log output line 1>
+# [mcp_server_a] <log output line 2>
+# ...
+```
+
+**認可の失敗例：**
+```bash
+# ❌ エラー: サーバー指定なし
+python run_multi_server.py --transport stdio
+# → "Stdio mode requires exactly one --server. Available: mcp_server_a"
+
+# ❌ エラー: 複数サーバ指定（Stdio モードは単一のみ）
 python run_multi_server.py --transport stdio --server server_a server_b
+# → "Stdio mode requires exactly one --server. Available: mcp_server_a, mcp_server_b"
 ```
 
 ### URL パスのカスタマイズ
@@ -152,6 +167,7 @@ http://localhost:8000/server_a/mcp      ← path 未指定の場合
 ## ファイル一覧
 - `multi_server_loader.py`: 階層レイアウトローダ本体
 - `run_multi_server.py`: マルチ/プロキシ起動スクリプト（メインエントリーポイント）
+- `run_server_subprocess.py`: Stdio モード用シングルサーバ実行スクリプト
 - `proxy_server.py`: パスベースプロキシサーバー実装
 - `mcp_servers/mcp_server_a/`: サンプルサーバ構成
   - `server.json`: メタデータファイル（オプション）
@@ -192,3 +208,31 @@ http://localhost:8000/server_a/mcp      ← path 未指定の場合
 ### 備考
 - `server.json` がない場合、`server://info` は `{"name": "<server_name>", "error": "No server.json found"}` を返します。
 - `server.json` は有効なJSONである必要があります。パース失敗時はエラー例外が発生します。
+
+## Stdio モード（Debug Mode）の詳細
+
+### 単一サーバのみをサポート
+Stdio モードは開発・デバッグ用途として、**単一サーバのみをサポート**します。複数サーバが必要な場合は Proxy Mode (SSE) を使用してください。
+
+### リアルタイムログ監視機能
+Stdio モードでサーバを起動すると、サーバプロセスの stdout/stderr をリアルタイムで監視できます：
+
+```bash
+$ python run_multi_server.py --transport stdio --server mcp_server_a
+
+Debug Mode (stdio): Starting mcp_server_a
+[mcp_server_a] INFO: Server starting...
+[mcp_server_a] DEBUG: Loading Tools...
+[mcp_server_a] DEBUG: Loaded calc.py
+...
+```
+
+**特徴：**
+- `[server_name]` プリフィックス付きで出力を表示
+- Ctrl+C で安全に終了（プロセスを graceful shutdown）
+- ログファイル出力とは異なり、開発中のインタラクティブなデバッグに最適
+
+### 实装詳細
+- `run_multi_server.py --transport stdio` を実行すると `run_server_subprocess.py` が subprocess.Popen で起動されます
+- stdout と stderr は親プロセスがパイプでキャプチャします
+- リアルタイムで行ごとに読み込み、プリフィックス付きで表示します
