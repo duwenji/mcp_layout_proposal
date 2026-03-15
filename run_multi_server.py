@@ -25,7 +25,7 @@ def main() -> int:
     loader = MultiServerLayoutLoader(Path(args.root))
     
     if args.transport == "stdio":
-        # Debug Mode: single server with stdio transport and output capture
+        # Debug Mode: run server directly in parent process
         if not args.server or len(args.server) != 1:
             available = ", ".join(p.name for p in loader.discover_servers()) or "(none)"
             raise SystemExit(f"Stdio mode requires exactly one --server. Available: {available}")
@@ -34,45 +34,29 @@ def main() -> int:
         
         # Validate server exists
         try:
-            loader.build_server(server_name)
+            build = loader.build_server(server_name)
         except ValueError:
             available = ", ".join(p.name for p in loader.discover_servers()) or "(none)"
             raise SystemExit(f"Unknown server '{server_name}'. Available: {available}")
         
-        # Start subprocess with stdio transport
+        # Run server directly in parent process
         print(f"Debug Mode (stdio): Starting {server_name}")
-        proc_args = [
-            sys.executable,
-            "run_server_subprocess.py",
-            "--root", args.root,
-            "--server", server_name,
-            "--transport", "stdio",
-        ]
-        
         try:
-            proc = subprocess.Popen(
-                proc_args,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1
-            )
-            
-            # Real-time output capture and display
-            for line in iter(proc.stdout.readline, ''):
-                if line:
-                    print(f"[{server_name}] {line}", end="")
-            
-            returncode = proc.wait()
-            return returncode
+            build.server.run(transport="stdio")
+            return 0
         except KeyboardInterrupt:
-            print(f"\nTerminating {server_name}...")
-            proc.terminate()
             try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
+                print(f"\nTerminating {server_name}...")
+            except (ValueError, BrokenPipeError):
+                # stdout may be closed, ignore print errors
+                pass
+            return 1
+        except Exception as e:
+            try:
+                print(f"Error: {e}", file=sys.stderr)
+            except (ValueError, BrokenPipeError):
+                # stderr may be closed, ignore print errors
+                pass
             return 1
     else:
         # Proxy Mode: multiple servers with path-based routing

@@ -48,11 +48,10 @@ mcp_servers/
 **注意: Stdio モードは単一サーバのみをサポートします**
 
 1. `run_multi_server.py` が起動（transport: stdio, --server で単一サーバを指定）
-2. `run_server_subprocess.py` を subprocess.Popen で実行
-3. サーバーの stdout/stderr を親プロセスがキャプチャ
-4. リアルタイムログ監視機能付き（`[server_name]` プリフィックス）
-5. FastMCP サーバーを STDIO transport で起動
-6. **external access 不可**（開発・デバッグ用）
+2. 親プロセス内で直接 FastMCP サーバーを起動
+3. stdin/stdout/stderr が親プロセスと自動的に共有される
+4. JSON-RPC メッセージの双方向通信が可能
+5. **開発・デバッグ用** - MCPクライアントが直接 stdin/stdout を使用して通信
 
 ### アーキテクチャ図
 
@@ -62,17 +61,17 @@ graph TD
     B["User<br/>$ python run_multi_server.py --transport stdio --server server_a"]
     
     A -->|Proxy Mode| PA["proxy_server.py<br/>(Starlette + Uvicorn)"]
-    B -->|Debug Mode| MB["run_server_subprocess.py<br/>(Subprocess)"]
+    B -->|Debug Mode| MB["Parent Process<br/>(Direct Execution)"]
     
     PA -->|Mount ASGI<br/>sse_app| SA["FastMCP<br/>server_a"]
     PA -->|Mount ASGI<br/>sse_app| SB["FastMCP<br/>server_b"]
     
-    MB -->|Pipe stdout/stderr| P1["FastMCP<br/>server_a<br/>stdio"]
+    MB -->|Direct execution<br/>in parent| P1["FastMCP<br/>server_a<br/>stdio"]
     
     SA --> EP_A["http://127.0.0.1:8000<br/>/server_a/mcp"]
     SB --> EP_B["http://127.0.0.1:8000<br/>/server_b/mcp"]
     
-    P1 --> LOG["[server_a] log output<br/>Real-time monitoring"]
+    P1 --> COMM["stdin/stdout<br/>JSON-RPC"]
 ```
 
 ## 実行方法
@@ -109,15 +108,21 @@ python run_multi_server.py --transport streamable-http
 ⚠️ **注意**: Stdio モードは単一サーバのみをサポートします。`--server` パラメータで**必ず1つのサーバを指定**してください。
 
 ```bash
-# 単一サーバをデバッグモードで実行（リアルタイムログ監視機能付き）
+# 単一サーバをデバッグモードで実行（親プロセス内で直接実行）
 python run_multi_server.py --transport stdio --server mcp_server_a
 
 # 出力例：
 # Debug Mode (stdio): Starting mcp_server_a
-# [mcp_server_a] <log output line 1>
-# [mcp_server_a] <log output line 2>
-# ...
+# [サーバー出力がここに表示されます]
+# [JSON-RPC メッセージの処理...]
 ```
+
+**特徴：**
+- ✅ 親プロセス内で直接実行（subprocess 不要）
+- ✅ stdin/stdout/stderr が自動的に共有される
+- ✅ MCPクライアントが直接通信可能（JSON-RPC）
+- ✅ 開発・デバッグに最適
+- ❌ 複数サーバは非対応（Proxy Mode を使用してください）
 
 **認可の失敗例：**
 ```bash
@@ -167,7 +172,6 @@ http://localhost:8000/server_a/mcp      ← path 未指定の場合
 ## ファイル一覧
 - `multi_server_loader.py`: 階層レイアウトローダ本体
 - `run_multi_server.py`: マルチ/プロキシ起動スクリプト（メインエントリーポイント）
-- `run_server_subprocess.py`: Stdio モード用シングルサーバ実行スクリプト
 - `proxy_server.py`: パスベースプロキシサーバー実装
 - `mcp_servers/mcp_server_a/`: サンプルサーバ構成
   - `server.json`: メタデータファイル（オプション）
@@ -214,25 +218,28 @@ http://localhost:8000/server_a/mcp      ← path 未指定の場合
 ### 単一サーバのみをサポート
 Stdio モードは開発・デバッグ用途として、**単一サーバのみをサポート**します。複数サーバが必要な場合は Proxy Mode (SSE) を使用してください。
 
-### リアルタイムログ監視機能
-Stdio モードでサーバを起動すると、サーバプロセスの stdout/stderr をリアルタイムで監視できます：
+### stdin/stdout の直接共有
+Stdio モードでサーバを起動すると、親プロセスとサーバーの stdin/stdout が直接接続されます：
 
 ```bash
 $ python run_multi_server.py --transport stdio --server mcp_server_a
 
 Debug Mode (stdio): Starting mcp_server_a
-[mcp_server_a] INFO: Server starting...
-[mcp_server_a] DEBUG: Loading Tools...
-[mcp_server_a] DEBUG: Loaded calc.py
-...
+[親プロセスからのJSON-RPCリクエスト]
+↓
+[サーバーがJSON-RPCメッセージを処理]
+↓
+[レスポンスが返される]
 ```
 
 **特徴：**
-- `[server_name]` プリフィックス付きで出力を表示
-- Ctrl+C で安全に終了（プロセスを graceful shutdown）
-- ログファイル出力とは異なり、開発中のインタラクティブなデバッグに最適
+- ✅ 親プロセス内で直接実行（subprocess 不要）
+- ✅ stdin/stdout/stderr を自動的に受け継ぐ
+- ✅ MCPクライアントが直接 stdin/stdout でサーバーと通信可能
+- ✅ KeyboardInterrupt (Ctrl+C) で安全に終了
+- ❌ MCPサーバーのコンソール出力はクライアントと混在する可能性あり
 
-### 实装詳細
-- `run_multi_server.py --transport stdio` を実行すると `run_server_subprocess.py` が subprocess.Popen で起動されます
-- stdout と stderr は親プロセスがパイプでキャプチャします
-- リアルタイムで行ごとに読み込み、プリフィックス付きで表示します
+### 実装詳細
+- `build.server.run(transport="stdio")` を親プロセス内で直接呼び出し
+- stdin/stdout/stderr は親プロセスから継承
+- JSON-RPC メッセージは stdin/stdout で送受信されます
