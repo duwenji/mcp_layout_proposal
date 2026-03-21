@@ -1,0 +1,22 @@
+{
+  "name": "mcp-postgres",
+  "path": "postgres",
+  "version": "1.0.0",
+  "description": "PostgreSQL MCP server migrated into multi-server layout",
+  "author": "duwenji",
+  "capabilities": {
+    "tools": true,
+    "prompts": true,
+    "resources": true
+  },
+  "features": [
+    "crud",
+    "schema",
+    "table-management",
+    "sampling",
+    "transactions",
+    "elicitation",
+    "database-resources",
+    "database-prompts"
+  ]
+}
