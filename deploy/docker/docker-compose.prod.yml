@@ -42,7 +42,7 @@ services:
       - ../../:/app/mcp_layout_proposal
     command: >
       sh -c "pip install --no-cache-dir
-      'mcp @ git+https://github.com/duwenji/python-sdk-1936.git@Proposal--Concern-Based-Filtering-%231936'
+      mcp
       psycopg2-binary pydantic python-dotenv docker uvicorn starlette
       && python run_multi_server.py --transport sse --server mcp-postgres --host 0.0.0.0 --port 8000"
     networks:
