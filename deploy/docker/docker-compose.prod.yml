@@ -1,0 +1,56 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: mcp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - mcp_net
+
+  mcp-proxy:
+    image: python:3.12-slim
+    container_name: mcp-proxy
+    working_dir: /app/mcp_layout_proposal
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      MCP_DOCKER_AUTO_SETUP: "false"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_SSL_MODE: disable
+      MCP_LOG_LEVEL: INFO
+    volumes:
+      - ../../:/app/mcp_layout_proposal
+    command: >
+      sh -c "pip install --no-cache-dir
+      'mcp @ git+https://github.com/duwenji/python-sdk-1936.git@Proposal--Concern-Based-Filtering-%231936'
+      psycopg2-binary pydantic python-dotenv docker uvicorn starlette
+      && python run_multi_server.py --transport sse --server mcp-postgres --host 0.0.0.0 --port 8000"
+    networks:
+      - mcp_net
+
+volumes:
+  pg_data:
+
+networks:
+  mcp_net:
+    driver: bridge

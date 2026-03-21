@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-proxy-config
+  namespace: mcp-prod
+data:
+  MCP_DOCKER_AUTO_SETUP: "false"
+  POSTGRES_HOST: "postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_SSL_MODE: "prefer"
+  MCP_LOG_LEVEL: "INFO"

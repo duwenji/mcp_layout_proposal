@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-proxy
+  namespace: mcp-prod
+spec:
+  selector:
+    app: mcp-proxy
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000

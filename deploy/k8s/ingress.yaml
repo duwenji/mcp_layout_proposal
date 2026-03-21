@@ -1,0 +1,33 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mcp-proxy
+  namespace: mcp-prod
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - mcp.example.com
+      secretName: mcp-example-com-tls
+  rules:
+    - host: mcp.example.com
+      http:
+        paths:
+          - path: /postgres/mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: mcp-proxy
+                port:
+                  number: 80
+          - path: /health
+            pathType: Prefix
+            backend:
+              service:
+                name: mcp-proxy
+                port:
+                  number: 80

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "postgres-mcp-prod": {
+      "type": "sse",
+      "url": "https://mcp.example.com/postgres/mcp",
+      "timeout": 60,
+      "disabled": false
+    }
+  }
+}

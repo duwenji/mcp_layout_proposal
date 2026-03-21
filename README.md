@@ -2,6 +2,13 @@
 
 このディレクトリは、最新形式として「MCPサーバごとの配下に `Tools` / `Prompts` / `Resource` を置く」構成のみを採用します。
 
+## 本番デプロイ資料
+
+- 本番手順書: `docs/production-deploy-guide.md`
+- Docker Compose サンプル: `deploy/docker/docker-compose.prod.yml`
+- Kubernetes サンプル: `deploy/k8s/`
+- Copilot MCP 登録サンプル: `deploy/copilot/mcp-settings-http-sse.example.json`
+
 ## 採用する唯一の構成
 
 ```text
